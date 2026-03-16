@@ -771,7 +771,7 @@ async function saveDayToCloud(){
 
 function scheduleSave(){
   clearTimeout(syncTimer);
-  syncTimer=setTimeout(saveDayToCloud,800);
+  syncTimer=setTimeout(saveDayToCloud,1500);
   setSyncDot('syncing');
 }
 
@@ -851,13 +851,17 @@ async function renderCal(){
   const today=new Date();today.setHours(0,0,0,0);
   const first=new Date(y,m,1),last=new Date(y,m+1,0);
   const startDow=(first.getDay()+6)%7;
+  // Batch fetch the whole month at once
+  const startKey=`${y}-${String(m+1).padStart(2,'0')}-01`;
+  const endKey=dateKey(last);
+  await fetchDateRange(startKey,endKey);
   const dows=['M','T','W','T','F','S','S'];
   let html=dows.map(d=>`<div class="cal-dow">${d}</div>`).join('');
   for(let i=0;i<startDow;i++)html+=`<div class="cal-day other-month"></div>`;
   for(let day=1;day<=last.getDate();day++){
     const date=new Date(y,m,day);
     const key=dateKey(date);
-    const stored=dayCache[key]||(await loadDayFromCloud(key));
+    const stored=dayCache[key];
     const isToday=date.getTime()===today.getTime();
     const isSelected=date.getTime()===viewDate.getTime();
     const isFuture=date>today;
@@ -900,14 +904,32 @@ function switchStats(mode){
   renderStats();
 }
 
-async function getDayNet(d){
-  const stored=dayCache[dateKey(d)]||(await loadDayFromCloud(dateKey(d)));
+// Batch-fetch a range of dates in ONE query instead of N queries
+async function fetchDateRange(startKey, endKey){
+  // Pull from cache first, only fetch missing keys
+  const{data}=await sb.from('daily_logs')
+    .select('date_key,meals,exercises,goal,day_type')
+    .eq('user_id',currentUser.id)
+    .gte('date_key',startKey)
+    .lte('date_key',endKey);
+  if(data) data.forEach(row=>{ dayCache[row.date_key]=row; });
+}
+
+function getDayNetFromCache(d){
+  const stored=dayCache[dateKey(d)];
   if(!stored)return null;
   const ms=JSON.parse(typeof stored.meals==='string'?stored.meals:'[]');
   const es=JSON.parse(typeof stored.exercises==='string'?stored.exercises:'[]');
   const inC=ms.reduce((s,x)=>s+x.cal,0);
   const outC=es.reduce((s,x)=>s+x.cal,0);
+  if(inC===0&&outC===0)return null;
   return{net:inC-outC,inC,outC,goal:stored.goal||DAY_GOALS[autoDetectDayType(d)]};
+}
+
+let statsTimer=null;
+function scheduleStats(){
+  clearTimeout(statsTimer);
+  statsTimer=setTimeout(renderStats,300);
 }
 
 async function renderStats(){
@@ -917,12 +939,14 @@ async function renderStats(){
     const mon=addDays(today,-dow);
     const days=Array.from({length:7},(_,i)=>addDays(mon,i));
     const dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    // Single batch fetch for the whole week
+    await fetchDateRange(dateKey(mon),dateKey(days[6]));
     let totalIn=0,totalDef=0,logged=0;
-    const vals=await Promise.all(days.map(async d=>{
-      const r=await getDayNet(d);
-      if(r&&(r.inC>0||r.outC>0)){totalIn+=r.net;totalDef+=(getMaint()-r.net);logged++;return{val:r.net,goal:r.goal,has:true};}
+    const vals=days.map(d=>{
+      const r=getDayNetFromCache(d);
+      if(r){totalIn+=r.net;totalDef+=(getMaint()-r.net);logged++;return{val:r.net,goal:r.goal,has:true};}
       return{val:0,goal:DAY_GOALS[autoDetectDayType(d)],has:false};
-    }));
+    });
     document.getElementById('wk-avg').textContent=logged>0?Math.round(totalIn/logged):'—';
     document.getElementById('wk-def').textContent=logged>0?(totalDef>0?'+'+totalDef:totalDef):'—';
     document.getElementById('wk-days').textContent=logged+'/7';
@@ -937,18 +961,21 @@ async function renderStats(){
     }).join('');
   }else{
     const y=today.getFullYear(),mo=today.getMonth();
-    const daysInMonth=new Date(y,mo+1,0).getDate();
-    const allDays=Array.from({length:Math.min(daysInMonth,today.getDate())},(_,i)=>new Date(y,mo,i+1));
+    const startKey=`${y}-${String(mo+1).padStart(2,'0')}-01`;
+    // Single batch fetch for the whole month
+    await fetchDateRange(startKey,dateKey(today));
+    const daysCount=today.getDate();
+    const allDays=Array.from({length:daysCount},(_,i)=>new Date(y,mo,i+1));
     let totalIn=0,totalDef=0,logged=0;
     const rows=[];
-    await Promise.all(allDays.map(async d=>{
-      const r=await getDayNet(d);
-      if(r&&(r.inC>0||r.outC>0)){totalIn+=r.net;totalDef+=(getMaint()-r.net);logged++;rows.push({d,net:r.net,goal:r.goal});}
-    }));
+    allDays.forEach(d=>{
+      const r=getDayNetFromCache(d);
+      if(r){totalIn+=r.net;totalDef+=(getMaint()-r.net);logged++;rows.push({d,net:r.net,goal:r.goal});}
+    });
     rows.sort((a,b)=>b.d-a.d);
     document.getElementById('mo-avg').textContent=logged>0?Math.round(totalIn/logged):'—';
     document.getElementById('mo-def').textContent=logged>0?(totalDef>0?'+'+totalDef:totalDef):'—';
-    document.getElementById('mo-days').textContent=logged+'/'+today.getDate();
+    document.getElementById('mo-days').textContent=logged+'/'+daysCount;
     const maxNet=Math.max(...rows.map(r=>r.net),500);
     document.getElementById('monthRows').innerHTML=rows.length===0
       ?'<div style="font-size:12px;color:var(--text3);padding:6px 0;">no data this month yet</div>'
@@ -1147,7 +1174,7 @@ function render(){
   }
 
   updateDateNav();
-  renderStats();
+  scheduleStats();
 
   const chip=document.getElementById('profileChipText');
   if(profileData){chip.innerHTML=`<span style="color:var(--text);">${profileData.weight}kg · ${profileData.height}cm · ${profileData.age}yo</span>&nbsp;&nbsp;maintenance <span style="color:var(--green);font-family:'DM Mono',monospace;">${getMaint()} kcal</span>`;}
