@@ -1,0 +1,18 @@
+{
+  "name": "cal.track",
+  "short_name": "cal.track",
+  "description": "Personal calorie & deficit tracker",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0e0e0e",
+  "theme_color": "#0e0e0e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%230e0e0e'/%3E%3Ctext x='256' y='340' font-family='system-ui' font-weight='500' font-size='280' fill='%233ecf8e' text-anchor='middle'%3Ec%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
