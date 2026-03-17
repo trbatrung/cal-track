@@ -11,6 +11,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230e0e0e'/%3E%3Ctext x='90' y='115' font-family='system-ui' font-weight='500' font-size='72' fill='%233ecf8e' text-anchor='middle'%3Ec%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root{
   --bg:#0e0e0e;--bg2:#161616;--surface:#1c1c1c;--surface2:#242424;--surface3:#2c2c2c;
@@ -348,7 +349,7 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 
 <div class="overlay" id="backupOverlay" onclick="if(event.target===this)closeBackup()">
   <div class="overlay-box">
     <div class="overlay-title">backup &amp; restore</div>
-    <div class="overlay-sub">Export your data as JSON or sync to Google Sheets.</div>
+    <div class="overlay-sub">Export JSON locally or sync via Google Drive / Sheets.</div>
 
     <div class="backup-section">
       <div class="backup-section-title">local backup</div>
@@ -363,28 +364,24 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 
     <div class="backup-divider"></div>
 
     <div class="backup-section">
-      <div class="backup-section-title">google sheets sync</div>
-      <div class="overlay-sub" style="margin-bottom:10px;font-size:11px;">Pastes today's log into a Google Sheet via Apps Script. One-time setup — see instructions below.</div>
-      <div class="sheets-field">
-        <label>Apps Script Web App URL</label>
-        <input id="sheetsUrl" type="text" placeholder="https://script.google.com/macros/s/...">
-      </div>
+      <div class="backup-section-title">google drive sync</div>
+      <div class="overlay-sub" style="margin-bottom:10px;font-size:11px;">Save your data to Google Drive and load it on any device. Sign in once — works everywhere.</div>
       <div class="backup-btn-row">
-        <button class="backup-btn green" onclick="syncToSheets()">&#8679; sync today to sheets</button>
-        <button class="backup-btn" onclick="syncAllToSheets()">&#8679; sync all history</button>
+        <button class="backup-btn green" id="driveSaveBtn" onclick="driveSave()">&#8679; save to drive</button>
+        <button class="backup-btn" id="driveLoadBtn" onclick="driveLoad()">&#8681; load from drive</button>
       </div>
-      <div class="backup-msg" id="sheetsMsg"></div>
+      <div class="backup-msg" id="driveMsg"></div>
     </div>
 
     <div class="backup-divider"></div>
 
-    <div style="font-size:11px;color:var(--text3);line-height:1.7;">
-      <strong style="color:var(--text2);">Google Sheets setup (one time):</strong><br>
-      1. Open a new Google Sheet<br>
-      2. Click Extensions → Apps Script<br>
-      3. Paste the script from the link below and deploy as web app<br>
-      4. Copy the web app URL and paste above<br>
-      <span style="color:var(--blue-txt);cursor:pointer;" onclick="openLink('https://github.com/trbatrung/cal-track#sheets-setup')">view setup guide →</span>
+    <div class="backup-section">
+      <div class="backup-section-title">google sheets log</div>
+      <div class="backup-btn-row">
+        <button class="backup-btn green" onclick="syncToSheets()">&#8679; sync today</button>
+        <button class="backup-btn" onclick="syncAllToSheets()">&#8679; sync all history</button>
+      </div>
+      <div class="backup-msg" id="sheetsMsg"></div>
     </div>
 
     <button class="btn-secondary" style="margin-top:14px;" onclick="closeBackup()">close</button>
@@ -1186,6 +1183,97 @@ loadDateData(viewDate);
 render();
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+// ── GOOGLE DRIVE SYNC ─────────────────────────────────────────────────────
+const GDRIVE_CLIENT_ID='771452479013-9mrj40h5s69qt76kamr9e12cajoiun6g.apps.googleusercontent.com';
+const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.appdata';
+const GDRIVE_FILE='caltrack-backup.json';
+let gdriveToken=null;
+
+function gdriveMsg(txt,color){const el=document.getElementById('driveMsg');el.textContent=txt;el.style.color=color||'var(--text2)';}
+
+async function gdriveSignIn(){
+  return new Promise((resolve,reject)=>{
+    if(!window.google){gdriveMsg('Google API not loaded yet, try again.','var(--red-txt)');reject();return;}
+    const client=google.accounts.oauth2.initTokenClient({
+      client_id:GDRIVE_CLIENT_ID,
+      scope:GDRIVE_SCOPE,
+      callback:(res)=>{
+        if(res.error){gdriveMsg('Sign-in failed: '+res.error,'var(--red-txt)');reject();return;}
+        gdriveToken=res.access_token;
+        resolve(res.access_token);
+      }
+    });
+    client.requestAccessToken();
+  });
+}
+
+async function getOrCreateDriveFile(){
+  // Search for existing file in appDataFolder
+  const search=await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%22'+GDRIVE_FILE+'%22&fields=files(id,name)',{headers:{Authorization:'Bearer '+gdriveToken}});
+  const data=await search.json();
+  if(data.files&&data.files.length>0) return data.files[0].id;
+  return null;
+}
+
+async function driveSave(){
+  gdriveMsg('Signing in to Google...','var(--text2)');
+  try{ await gdriveSignIn(); } catch(e){ return; }
+  gdriveMsg('Saving to Drive...','var(--text2)');
+  try{
+    // Build full backup
+    const backup={version:1,exported:new Date().toISOString(),profile:loadProfile(),customFoods:loadCustomFoods(),days:{}};
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key&&key.startsWith('ct_day_')){
+        try{backup.days[key.replace('ct_day_','')]=JSON.parse(localStorage.getItem(key));}catch(e){}
+      }
+    }
+    const content=JSON.stringify(backup,null,2);
+    const existingId=await getOrCreateDriveFile();
+    let res;
+    if(existingId){
+      // Update existing file
+      res=await fetch('https://www.googleapis.com/upload/drive/v3/files/'+existingId+'?uploadType=media',{
+        method:'PATCH',headers:{Authorization:'Bearer '+gdriveToken,'Content-Type':'application/json'},body:content
+      });
+    } else {
+      // Create new file in appDataFolder
+      const meta=JSON.stringify({name:GDRIVE_FILE,parents:['appDataFolder']});
+      const form=new FormData();
+      form.append('metadata',new Blob([meta],{type:'application/json'}));
+      form.append('file',new Blob([content],{type:'application/json'}));
+      res=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{
+        method:'POST',headers:{Authorization:'Bearer '+gdriveToken},body:form
+      });
+    }
+    if(res.ok){ gdriveMsg('✓ Saved to Google Drive!','var(--green-txt)'); }
+    else{ gdriveMsg('Save failed. Try again.','var(--red-txt)'); }
+  }catch(e){ gdriveMsg('Error: '+e.message,'var(--red-txt)'); }
+  setTimeout(()=>gdriveMsg(''),4000);
+}
+
+async function driveLoad(){
+  gdriveMsg('Signing in to Google...','var(--text2)');
+  try{ await gdriveSignIn(); } catch(e){ return; }
+  gdriveMsg('Loading from Drive...','var(--text2)');
+  try{
+    const fileId=await getOrCreateDriveFile();
+    if(!fileId){ gdriveMsg('No backup found on Drive yet. Save first.','var(--amber-txt)'); return; }
+    const res=await fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?alt=media',{
+      headers:{Authorization:'Bearer '+gdriveToken}
+    });
+    const data=await res.json();
+    if(!data.version||!data.days){ gdriveMsg('Invalid backup file.','var(--red-txt)'); return; }
+    if(data.profile) localStorage.setItem('ct_profile',JSON.stringify(data.profile));
+    if(data.customFoods) localStorage.setItem('ct_custom',JSON.stringify(data.customFoods));
+    let count=0;
+    Object.entries(data.days).forEach(([k,v])=>{ localStorage.setItem('ct_day_'+k,JSON.stringify(v)); count++; });
+    gdriveMsg(`✓ Loaded ${count} days from Drive!`,'var(--green-txt)');
+    loadDateData(viewDate); render();
+  }catch(e){ gdriveMsg('Error: '+e.message,'var(--red-txt)'); }
+  setTimeout(()=>gdriveMsg(''),4000);
+}
 </script>
 </body>
 </html>
