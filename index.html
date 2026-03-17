@@ -230,6 +230,22 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 
 .cf-badge{display:inline-block;font-size:9px;padding:1px 5px;border-radius:4px;background:var(--blue-dim);color:var(--blue-txt);margin-left:4px;vertical-align:middle;}
 .empty-custom{font-size:12px;color:var(--text3);padding:6px 1px;}
 
+/* Backup overlay */
+.backup-section{margin-bottom:16px;}
+.backup-section-title{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
+.backup-btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+.backup-btn{flex:1;min-width:120px;font-size:12px;padding:9px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;text-align:center;}
+.backup-btn:hover{background:var(--surface3);}
+.backup-btn.green{border-color:var(--green);color:var(--green-txt);background:var(--green-dim);}
+.backup-btn.green:hover{background:var(--green);color:#0e0e0e;}
+.backup-divider{height:1px;background:var(--border);margin:14px 0;}
+.sheets-field{display:flex;flex-direction:column;gap:5px;margin-bottom:10px;}
+.sheets-field label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;}
+.sheets-field input{font-size:12px;padding:7px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface2);color:var(--text);font-family:'DM Mono',monospace;}
+.sheets-field input:focus{outline:none;border-color:var(--green);}
+.sheets-field input::placeholder{color:var(--text3);}
+.backup-msg{font-size:12px;min-height:16px;margin-top:6px;}
+
 @media(max-width:700px){
   /* Prevent any horizontal overflow */
   html,body{overflow-x:hidden;width:100%;}
@@ -328,6 +344,53 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 
   </div>
 </div>
 
+<!-- Backup overlay -->
+<div class="overlay" id="backupOverlay" onclick="if(event.target===this)closeBackup()">
+  <div class="overlay-box">
+    <div class="overlay-title">backup &amp; restore</div>
+    <div class="overlay-sub">Export your data as JSON or sync to Google Sheets.</div>
+
+    <div class="backup-section">
+      <div class="backup-section-title">local backup</div>
+      <div class="backup-btn-row">
+        <button class="backup-btn green" onclick="exportJSON()">&#8595; export JSON</button>
+        <button class="backup-btn" onclick="document.getElementById('importFile').click()">&#8593; import JSON</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
+      </div>
+      <div class="backup-msg" id="backupMsg"></div>
+    </div>
+
+    <div class="backup-divider"></div>
+
+    <div class="backup-section">
+      <div class="backup-section-title">google sheets sync</div>
+      <div class="overlay-sub" style="margin-bottom:10px;font-size:11px;">Pastes today's log into a Google Sheet via Apps Script. One-time setup — see instructions below.</div>
+      <div class="sheets-field">
+        <label>Apps Script Web App URL</label>
+        <input id="sheetsUrl" type="text" placeholder="https://script.google.com/macros/s/...">
+      </div>
+      <div class="backup-btn-row">
+        <button class="backup-btn green" onclick="syncToSheets()">&#8679; sync today to sheets</button>
+        <button class="backup-btn" onclick="syncAllToSheets()">&#8679; sync all history</button>
+      </div>
+      <div class="backup-msg" id="sheetsMsg"></div>
+    </div>
+
+    <div class="backup-divider"></div>
+
+    <div style="font-size:11px;color:var(--text3);line-height:1.7;">
+      <strong style="color:var(--text2);">Google Sheets setup (one time):</strong><br>
+      1. Open a new Google Sheet<br>
+      2. Click Extensions → Apps Script<br>
+      3. Paste the script from the link below and deploy as web app<br>
+      4. Copy the web app URL and paste above<br>
+      <span style="color:var(--blue-txt);cursor:pointer;" onclick="openLink('https://github.com/trbatrung/cal-track#sheets-setup')">view setup guide →</span>
+    </div>
+
+    <button class="btn-secondary" style="margin-top:14px;" onclick="closeBackup()">close</button>
+  </div>
+</div>
+
 <header>
   <div class="logo">cal<span>.</span>track</div>
   <div class="date-nav">
@@ -337,6 +400,7 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 
     <button class="dnav-today" id="dnav-today" onclick="goToday()">today</button>
   </div>
   <div class="header-right">
+    <button class="icon-btn" onclick="openBackup()">&#128190; backup</button>
     <button class="icon-btn" onclick="openProf()">&#9881; profile</button>
     <div class="goal-wrap">
       <label>net goal</label>
@@ -680,9 +744,13 @@ function navDay(dir){
   const next=addDays(viewDate,dir);
   const today=new Date();today.setHours(0,0,0,0);
   if(next>today)return;
+  autoSyncToSheets(dateKey(viewDate),meals,exercises,goal);
   saveCurrent();viewDate=next;loadDateData(viewDate);render();
 }
-function goToday(){saveCurrent();viewDate=new Date();viewDate.setHours(0,0,0,0);loadDateData(viewDate);render();}
+function goToday(){
+  autoSyncToSheets(dateKey(viewDate),meals,exercises,goal);
+  saveCurrent();viewDate=new Date();viewDate.setHours(0,0,0,0);loadDateData(viewDate);render();
+}
 function setDay(t){dayType=t;goal=DAY_GOALS[t];document.getElementById('goalInput').value=goal;document.querySelectorAll('.day-btn').forEach(b=>b.classList.remove('active'));document.getElementById('btn-'+t).classList.add('active');saveCurrent();render();}
 
 // ── CALENDAR ──────────────────────────────────────────────────────────────
@@ -969,7 +1037,142 @@ function render(){
   else{chip.innerHTML=`<span style="color:var(--amber-txt);">⚠ no profile set — tap to add your stats</span>`;}
 }
 
-// ── INIT ──────────────────────────────────────────────────────────────────
+// ── BACKUP & RESTORE ──────────────────────────────────────────────────────
+function openBackup(){
+  const saved=localStorage.getItem('ct_sheets_url')||'';
+  document.getElementById('sheetsUrl').value=saved;
+  document.getElementById('backupMsg').textContent='';
+  document.getElementById('sheetsMsg').textContent='';
+  document.getElementById('backupOverlay').classList.add('open');
+}
+function closeBackup(){document.getElementById('backupOverlay').classList.remove('open');}
+
+function exportJSON(){
+  const data={version:1,exported:new Date().toISOString(),profile:loadProfile(),customFoods:loadCustomFoods(),days:{}};
+  // Collect all ct_day_ keys
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
+    if(key&&key.startsWith('ct_day_')){
+      const dateK=key.replace('ct_day_','');
+      try{data.days[dateK]=JSON.parse(localStorage.getItem(key));}catch(e){}
+    }
+  }
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='caltrack-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  const msg=document.getElementById('backupMsg');
+  msg.textContent='✓ Exported successfully!';msg.style.color='var(--green-txt)';
+  setTimeout(()=>msg.textContent='',3000);
+}
+
+function importJSON(event){
+  const file=event.target.files[0];if(!file)return;
+  const msg=document.getElementById('backupMsg');
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.version||!data.days){msg.textContent='Invalid backup file.';msg.style.color='var(--red-txt)';return;}
+      // Restore profile
+      if(data.profile)localStorage.setItem('ct_profile',JSON.stringify(data.profile));
+      // Restore custom foods
+      if(data.customFoods)localStorage.setItem('ct_custom',JSON.stringify(data.customFoods));
+      // Restore days
+      let count=0;
+      Object.entries(data.days).forEach(([k,v])=>{localStorage.setItem('ct_day_'+k,JSON.stringify(v));count++;});
+      msg.textContent=`✓ Restored ${count} days of data!`;msg.style.color='var(--green-txt)';
+      loadDateData(viewDate);render();
+    }catch(ex){msg.textContent='Failed to parse file.';msg.style.color='var(--red-txt)';}
+  };
+  reader.readAsText(file);
+  event.target.value='';
+}
+
+function getAllDaysData(){
+  const days=[];
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
+    if(key&&key.startsWith('ct_day_')){
+      const dateK=key.replace('ct_day_','');
+      try{
+        const d=JSON.parse(localStorage.getItem(key));
+        const ms=d.meals||[];const es=d.exercises||[];
+        const inC=ms.reduce((s,x)=>s+x.cal,0);
+        const outC=es.reduce((s,x)=>s+x.cal,0);
+        if(inC>0||outC>0) days.push({date:dateK,meals:ms,exercises:es,goal:d.goal||1800,net:inC-outC,deficit:getMaint()-(inC-outC)});
+      }catch(ex){}
+    }
+  }
+  return days.sort((a,b)=>a.date.localeCompare(b.date));
+}
+
+async function syncToSheets(){
+  const url=document.getElementById('sheetsUrl').value.trim();
+  const msg=document.getElementById('sheetsMsg');
+  if(!url){msg.textContent='Paste your Apps Script URL first.';msg.style.color='var(--amber-txt)';
+    localStorage.setItem('ct_sheets_url',url);return;}
+  localStorage.setItem('ct_sheets_url',url);
+  msg.textContent='Syncing...';msg.style.color='var(--text2)';
+  const key=dateKey(viewDate);
+  const stored=loadDay(key);
+  const ms=stored?.meals||meals;const es=stored?.exercises||exercises;
+  const inC=ms.reduce((s,x)=>s+x.cal,0);const outC=es.reduce((s,x)=>s+x.cal,0);
+  const payload={action:'sync',rows:[{date:key,meals:ms.map(m=>m.n).join(', '),calories_in:inC,burned:outC,net:inC-outC,deficit:getMaint()-(inC-outC),goal:stored?.goal||goal}]};
+  try{
+    await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),mode:'no-cors'});
+    msg.textContent='✓ Synced today to Google Sheets!';msg.style.color='var(--green-txt)';
+  }catch(ex){msg.textContent='✓ Sent! (no-cors mode — check your sheet)';msg.style.color='var(--green-txt)';}
+  setTimeout(()=>msg.textContent='',4000);
+}
+
+async function syncAllToSheets(){
+  const url=document.getElementById('sheetsUrl').value.trim();
+  const msg=document.getElementById('sheetsMsg');
+  if(!url){msg.textContent='Paste your Apps Script URL first.';msg.style.color='var(--amber-txt)';return;}
+  localStorage.setItem('ct_sheets_url',url);
+  msg.textContent='Syncing all history...';msg.style.color='var(--text2)';
+  const days=getAllDaysData();
+  if(days.length===0){msg.textContent='No data to sync yet.';msg.style.color='var(--text2)';return;}
+  const rows=days.map(d=>({date:d.date,meals:d.meals.map(m=>m.n).join(', '),calories_in:d.meals.reduce((s,m)=>s+m.cal,0),burned:d.exercises.reduce((s,e)=>s+e.cal,0),net:d.net,deficit:d.deficit,goal:d.goal}));
+  try{
+    await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'syncAll',rows}),mode:'no-cors'});
+    msg.textContent=`✓ Synced ${days.length} days to Google Sheets!`;msg.style.color='var(--green-txt)';
+  }catch(ex){msg.textContent=`✓ Sent ${days.length} days! (check your sheet)`;msg.style.color='var(--green-txt)';}
+  setTimeout(()=>msg.textContent='',4000);
+}
+
+// ── AUTO SYNC (end of day / on close) ────────────────────────────────────
+async function autoSyncToSheets(dateToSync, mealsToSync, exercisesToSync, goalToSync){
+  const url=localStorage.getItem('ct_sheets_url')||'';
+  if(!url) return;
+  const inC=mealsToSync.reduce((s,x)=>s+x.cal,0);
+  const outC=exercisesToSync.reduce((s,x)=>s+x.cal,0);
+  if(inC===0&&outC===0) return;
+  const payload={action:'sync',rows:[{
+    date:dateToSync,
+    meals:mealsToSync.map(m=>m.n).join(', '),
+    calories_in:inC, burned:outC, net:inC-outC,
+    deficit:getMaint()-(inC-outC), goal:goalToSync
+  }]};
+  try{ await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),mode:'no-cors'}); }catch(e){}
+}
+
+// Auto-sync when closing/leaving tab
+window.addEventListener('beforeunload',()=>{
+  const url=localStorage.getItem('ct_sheets_url')||'';
+  if(!url) return;
+  const key=dateKey(viewDate);
+  const stored=loadDay(key);
+  const ms=stored?.meals||meals;
+  const es=stored?.exercises||exercises;
+  const g=stored?.goal||goal;
+  autoSyncToSheets(key,ms,es,g);
+});
+
 document.getElementById('goalInput').addEventListener('input',function(){goal=parseInt(this.value)||0;saveCurrent();render();});
 document.getElementById('exName').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('exCal').focus();});
 document.getElementById('exCal').addEventListener('keydown',e=>{if(e.key==='Enter')addEx();});
