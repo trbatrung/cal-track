@@ -1039,8 +1039,9 @@ function render(){
 
 // ── BACKUP & RESTORE ──────────────────────────────────────────────────────
 function openBackup(){
-  const saved=localStorage.getItem('ct_sheets_url')||'';
+  const saved=localStorage.getItem('ct_sheets_url')||'https://script.google.com/macros/s/AKfycbwY43HnmQfHSk7xWAsN5Y-wxe_AzWZxyiBaGq_F3hGFHeF55i5agJBB6WQjs86PB2WC/exec';
   document.getElementById('sheetsUrl').value=saved;
+  if(!localStorage.getItem('ct_sheets_url')) localStorage.setItem('ct_sheets_url',saved);
   document.getElementById('backupMsg').textContent='';
   document.getElementById('sheetsMsg').textContent='';
   document.getElementById('backupOverlay').classList.add('open');
@@ -1179,6 +1180,8 @@ document.getElementById('exCal').addEventListener('keydown',e=>{if(e.key==='Ente
 
 const dow=new Date().getDay();
 if(dow===6)dayType='saturday';else if(dow===0)dayType='sunday';else dayType='weekday';
+// Pre-fill sheets URL if not set
+if(!localStorage.getItem('ct_sheets_url')) localStorage.setItem('ct_sheets_url','https://script.google.com/macros/s/AKfycbwY43HnmQfHSk7xWAsN5Y-wxe_AzWZxyiBaGq_F3hGFHeF55i5agJBB6WQjs86PB2WC/exec');
 loadDateData(viewDate);
 render();
 
