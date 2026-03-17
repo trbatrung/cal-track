@@ -1036,11 +1036,9 @@ function render(){
 
 // ── BACKUP & RESTORE ──────────────────────────────────────────────────────
 function openBackup(){
-  const saved=localStorage.getItem('ct_sheets_url')||'https://script.google.com/macros/s/AKfycbwY43HnmQfHSk7xWAsN5Y-wxe_AzWZxyiBaGq_F3hGFHeF55i5agJBB6WQjs86PB2WC/exec';
-  document.getElementById('sheetsUrl').value=saved;
-  if(!localStorage.getItem('ct_sheets_url')) localStorage.setItem('ct_sheets_url',saved);
   document.getElementById('backupMsg').textContent='';
   document.getElementById('sheetsMsg').textContent='';
+  document.getElementById('driveMsg').textContent='';
   document.getElementById('backupOverlay').classList.add('open');
 }
 function closeBackup(){document.getElementById('backupOverlay').classList.remove('open');}
